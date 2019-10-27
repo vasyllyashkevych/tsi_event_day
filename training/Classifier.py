@@ -85,20 +85,6 @@ def build_network():
 
     pool2 = pool_max(output_conv2)
 
-    # conv3
-    with tf.name_scope('conv3') as scope:
-        kernel = weight_variable([3, 3, 32, 64])
-        biases = bias_variable([64])
-        output_conv3 = tf.nn.relu(conv2d(pool2, kernel) + biases, name=scope)
-
-    # conv4
-    with tf.name_scope('conv4') as scope:
-        kernel = weight_variable([3, 3, 64, 128])
-        biases = bias_variable([128])
-        output_conv4 = tf.nn.relu(conv2d(output_conv3, kernel) + biases, name=scope)
-
-    pool4 = pool_max(output_conv4)
-
     #fc5
     with tf.name_scope('fc5') as scope:
         shape = int(np.prod(pool2.get_shape()[1:]))
