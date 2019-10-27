@@ -1,15 +1,14 @@
+#from PIL import Image
 import os
 import glob
 import cv2 as cv2
-import numpy as np
 import pprint
+import numpy as np
 import logging
-import tensorflow as tf
-tf.compat.v1.disable_v2_behavior()
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 tf.get_logger().setLevel(logging.ERROR)
-# logging.getLogger('tensorflow').disabled = True
 from tensorflow.python.framework import graph_util
-
 
 print("\nSet up initial settings ... ")
 configuration = {
@@ -19,7 +18,7 @@ configuration = {
     "channel": 3,
     "ratio": 0.8,
     "batch_size": 2,
-    "num_epochs": 1000000,
+    "num_epochs": 10,
     "pb_file_path": "parking_vgg.pb"
     }
 pprint.pprint(configuration)
@@ -43,15 +42,11 @@ def read_img_hdd(path):
 
 
 def build_network():
-    x = tf.compat.v1.placeholder(tf.float32,
-                                 shape=[None, configuration['height'],
-                                                    configuration['width'],
-                                                    configuration['channel']],
-                                 name='input')
-    y = tf.compat.v1.placeholder(tf.int64, shape=[None, 3], name='labels_placeholder')
+    x = tf.placeholder(tf.float32, shape=[None, configuration['height'], configuration['width'], configuration['channel']], name='input')
+    y = tf.placeholder(tf.int64, shape=[None, 2], name='labels_placeholder')
 
     def weight_variable(shape, name="weights"):
-        initial = tf.random.truncated_normal(shape, dtype=tf.float32, stddev=0.1)
+        initial = tf.truncated_normal(shape, dtype=tf.float32, stddev=0.1)
         return tf.Variable(initial, name=name)
 
     def bias_variable(shape, name="biases"):
@@ -62,47 +57,119 @@ def build_network():
         return tf.nn.conv2d(input, w, [1, 1, 1, 1], padding='SAME')
 
     def pool_max(input):
-        return tf.nn.max_pool2d(input,
-                                ksize=[1, 2, 2, 1],
-                                strides=[1, 2, 2, 1],
-                                padding='SAME',
-                                name='pool1')
+        return tf.nn.max_pool(input,
+                               ksize=[1, 2, 2, 1],
+                               strides=[1, 2, 2, 1],
+                               padding='SAME',
+                               name='pool1')
 
     def fc(input, w, b):
         return tf.matmul(input, w) + b
 
     # conv1
-    with tf.name_scope('conv1') as scope:
-        kernel = weight_variable([3, 3, 3, 16])
-        biases = bias_variable([16])
-        output_conv1 = tf.nn.relu(conv2d(x, kernel) + biases, name=scope)
+    with tf.name_scope('conv1_1') as scope:
+        kernel = weight_variable([3, 3, 3, 64])
+        biases = bias_variable([64])
+        output_conv1_1 = tf.nn.relu(conv2d(x, kernel) + biases, name=scope)
+
+    with tf.name_scope('conv1_2') as scope:
+        kernel = weight_variable([3, 3, 64, 64])
+        biases = bias_variable([64])
+        output_conv1_2 = tf.nn.relu(conv2d(output_conv1_1, kernel) + biases, name=scope)
+
+    pool1 = pool_max(output_conv1_2)
 
     # conv2
-    with tf.name_scope('conv2') as scope:
-        kernel = weight_variable([3, 3, 16, 32])
-        biases = bias_variable([32])
-        output_conv2 = tf.nn.relu(conv2d(output_conv1, kernel) + biases, name=scope)
+    with tf.name_scope('conv2_1') as scope:
+        kernel = weight_variable([3, 3, 64, 128])
+        biases = bias_variable([128])
+        output_conv2_1 = tf.nn.relu(conv2d(pool1, kernel) + biases, name=scope)
 
-    pool2 = pool_max(output_conv2)
+    with tf.name_scope('conv2_2') as scope:
+        kernel = weight_variable([3, 3, 128, 128])
+        biases = bias_variable([128])
+        output_conv2_2 = tf.nn.relu(conv2d(output_conv2_1, kernel) + biases, name=scope)
 
-    #fc5
-    with tf.name_scope('fc5') as scope:
-        shape = int(np.prod(pool2.get_shape()[1:]))
-        kernel = weight_variable([shape, 1024])
-        biases = bias_variable([1024])
-        pool5_flat = tf.reshape(pool2, [-1, shape])
-        output_fc5 = tf.nn.relu(fc(pool5_flat, kernel, biases), name=scope)
+    pool2 = pool_max(output_conv2_2)
+
+    # conv3
+    with tf.name_scope('conv3_1') as scope:
+        kernel = weight_variable([3, 3, 128, 256])
+        biases = bias_variable([256])
+        output_conv3_1 = tf.nn.relu(conv2d(pool2, kernel) + biases, name=scope)
+
+    with tf.name_scope('conv3_2') as scope:
+        kernel = weight_variable([3, 3, 256, 256])
+        biases = bias_variable([256])
+        output_conv3_2 = tf.nn.relu(conv2d(output_conv3_1, kernel) + biases, name=scope)
+
+    with tf.name_scope('conv3_3') as scope:
+        kernel = weight_variable([3, 3, 256, 256])
+        biases = bias_variable([256])
+        output_conv3_3 = tf.nn.relu(conv2d(output_conv3_2, kernel) + biases, name=scope)
+
+    pool3 = pool_max(output_conv3_3)
+
+    # conv4
+    with tf.name_scope('conv4_1') as scope:
+        kernel = weight_variable([3, 3, 256, 512])
+        biases = bias_variable([512])
+        output_conv4_1 = tf.nn.relu(conv2d(pool3, kernel) + biases, name=scope)
+
+    with tf.name_scope('conv4_2') as scope:
+        kernel = weight_variable([3, 3, 512, 512])
+        biases = bias_variable([512])
+        output_conv4_2 = tf.nn.relu(conv2d(output_conv4_1, kernel) + biases, name=scope)
+
+    with tf.name_scope('conv4_3') as scope:
+        kernel = weight_variable([3, 3, 512, 512])
+        biases = bias_variable([512])
+        output_conv4_3 = tf.nn.relu(conv2d(output_conv4_2, kernel) + biases, name=scope)
+
+    pool4 = pool_max(output_conv4_3)
+
+    # conv5
+    with tf.name_scope('conv5_1') as scope:
+        kernel = weight_variable([3, 3, 512, 512])
+        biases = bias_variable([512])
+        output_conv5_1 = tf.nn.relu(conv2d(pool4, kernel) + biases, name=scope)
+
+    with tf.name_scope('conv5_2') as scope:
+        kernel = weight_variable([3, 3, 512, 512])
+        biases = bias_variable([512])
+        output_conv5_2 = tf.nn.relu(conv2d(output_conv5_1, kernel) + biases, name=scope)
+
+    with tf.name_scope('conv5_3') as scope:
+        kernel = weight_variable([3, 3, 512, 512])
+        biases = bias_variable([512])
+        output_conv5_3 = tf.nn.relu(conv2d(output_conv5_2, kernel) + biases, name=scope)
+
+    pool5 = pool_max(output_conv5_3)
 
     #fc6
     with tf.name_scope('fc6') as scope:
-        kernel = weight_variable([1024, 3])
-        biases = bias_variable([3])
-        output_fc6 = tf.nn.relu(fc(output_fc5, kernel, biases), name=scope)
+        shape = int(np.prod(pool5.get_shape()[1:]))
+        kernel = weight_variable([shape, 4096])
+        biases = bias_variable([4096])
+        pool5_flat = tf.reshape(pool5, [-1, shape])
+        output_fc6 = tf.nn.relu(fc(pool5_flat, kernel, biases), name=scope)
 
-    finaloutput = tf.nn.softmax(output_fc6, name="softmax")
+    #fc7
+    with tf.name_scope('fc7') as scope:
+        kernel = weight_variable([4096, 4096])
+        biases = bias_variable([4096])
+        output_fc7 = tf.nn.relu(fc(output_fc6, kernel, biases), name=scope)
+
+    #fc8
+    with tf.name_scope('fc8') as scope:
+        kernel = weight_variable([4096, 2])
+        biases = bias_variable([2])
+        output_fc8 = tf.nn.relu(fc(output_fc7, kernel, biases), name=scope)
+
+    finaloutput = tf.nn.softmax(output_fc8, name="softmax")
 
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=finaloutput, labels=y))
-    optimize = tf.compat.v1.train.AdamOptimizer(learning_rate=1e-4).minimize(cost)
+    optimize = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(cost)
 
     prediction_labels = tf.argmax(finaloutput, axis=1, name="output")
     read_labels = y
@@ -119,29 +186,19 @@ def build_network():
         correct_prediction=correct_prediction,
         correct_times_in_batch=correct_times_in_batch,
         cost=cost,
-        accuracy=accuracy
     )
-
-def get_vector(x):
-    if x == 0:
-        return [[1, 0, 0]]
-    elif x == 1:
-        return [[0, 1, 0]]
-    elif x == 2:
-        return [[0, 0, 1]]
 
 
 def train_network(graph, x_train, y_train, x_val, y_val, batch_size, num_epochs, pb_file_path):
-    init = tf.compat.v1.global_variables_initializer()
-
-    with tf.compat.v1.Session() as sess:
+    init = tf.global_variables_initializer()
+    with tf.Session() as sess:
         sess.run(init)
         epoch_delta = 2
         for epoch_index in range(num_epochs):
             for i in range(12):
                 sess.run([graph['optimize']], feed_dict={
                     graph['x']: np.reshape(x_train[i], (1, 224, 224, 3)),
-                    graph['y']: get_vector(y_train[i])
+                    graph['y']: ([[1, 0]] if y_train[i] == 0 else [[0, 1]])
                 })
             if epoch_index % epoch_delta == 0:
                 total_batches_in_train_set = 0
@@ -150,15 +207,16 @@ def train_network(graph, x_train, y_train, x_val, y_val, batch_size, num_epochs,
                 for i in range(12):
                     return_correct_times_in_batch = sess.run(graph['correct_times_in_batch'], feed_dict={
                         graph['x']: np.reshape(x_train[i], (1, 224, 224, 3)),
-                        graph['y']: get_vector(y_train[i])
+                        graph['y']: ([[1, 0]] if y_train[i] == 0 else [[0, 1]])
                     })
                     mean_cost_in_batch = sess.run(graph['cost'], feed_dict={
                         graph['x']: np.reshape(x_train[i], (1, 224, 224, 3)),
-                        graph['y']: get_vector(y_train[i])
+                        graph['y']: ([[1, 0]] if y_train[i] == 0 else [[0, 1]])
                     })
                     total_batches_in_train_set += 1
                     total_correct_times_in_train_set += return_correct_times_in_batch
                     total_cost_in_train_set += (mean_cost_in_batch * batch_size)
+
 
                 total_batches_in_test_set = 0
                 total_correct_times_in_test_set = 0
@@ -166,11 +224,11 @@ def train_network(graph, x_train, y_train, x_val, y_val, batch_size, num_epochs,
                 for i in range(3):
                     return_correct_times_in_batch = sess.run(graph['correct_times_in_batch'], feed_dict={
                         graph['x']: np.reshape(x_val[i], (1, 224, 224, 3)),
-                        graph['y']: get_vector(y_train[i])
+                        graph['y']: ([[1, 0]] if y_val[i] == 0 else [[0, 1]])
                     })
                     mean_cost_in_batch = sess.run(graph['cost'], feed_dict={
                         graph['x']: np.reshape(x_val[i], (1, 224, 224, 3)),
-                        graph['y']: get_vector(y_train[i])
+                        graph['y']: ([[1, 0]] if y_val[i] == 0 else [[0, 1]])
                     })
                     total_batches_in_test_set += 1
                     total_correct_times_in_test_set += return_correct_times_in_batch
@@ -186,7 +244,7 @@ def train_network(graph, x_train, y_train, x_val, y_val, batch_size, num_epochs,
                                                                                                                                                    total_batches_in_train_set * batch_size,
                                                                                                                                                    total_cost_in_train_set))
             constant_graph = graph_util.convert_variables_to_constants(sess, sess.graph_def, ["output"])
-            with tf.compat.v1.gfile.FastGFile(pb_file_path, mode='wb') as f:
+            with tf.gfile.FastGFile(pb_file_path, mode='wb') as f:
                 f.write(constant_graph.SerializeToString())
 
 
@@ -210,6 +268,7 @@ def main():
     print("done")
 
 main()
+
 
 
 
